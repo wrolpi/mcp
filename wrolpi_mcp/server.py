@@ -5,6 +5,7 @@ web app uses), rendered as compact text with a WROLPi link on every item."""
 import json
 import logging
 import sys
+from importlib.metadata import PackageNotFoundError, version
 
 import httpx
 from mcp.server.mcpserver import MCPServer
@@ -19,8 +20,14 @@ from wrolpi_mcp.render import absolute_link, page_text
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger('wrolpi_mcp')
 
+try:
+    __version__ = version('wrolpi-mcp')
+except PackageNotFoundError:
+    __version__ = '0'
+
 mcp = MCPServer(
     'WROLPi',
+    version=__version__,
     instructions=(
         'WROLPi is an offline digital library containing videos, archived web pages, ebooks, Zim '
         'encyclopedias (Wikipedia, etc.), maps, and documents. '
