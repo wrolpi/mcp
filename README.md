@@ -64,6 +64,47 @@ Add to `claude_desktop_config.json` (Settings > Developer > Edit Config):
 
 If you installed it with `pipx` or `uv tool`, use `"command": "wrolpi-mcp"` with no `args`.
 
+### LM Studio
+
+LM Studio 0.3.17 or newer can run MCP servers. Either click the button (LM Studio opens and asks you
+to confirm the server), then change `WROLPI_API_URL` to your WROLPi's address:
+
+[![Add WROLPi to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](lmstudio://add_mcp?name=wrolpi&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL3dyb2xwaS9tY3AiLCJ3cm9scGktbWNwIl0sImVudiI6eyJXUk9MUElfQVBJX1VSTCI6Imh0dHBzOi8vd3JvbHBpLmxvY2FsOjg0NDMifX0%3D)
+
+GitHub strips `lmstudio://` links, so if the button does nothing, paste this into your browser's
+address bar instead:
+
+```
+lmstudio://add_mcp?name=wrolpi&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL3dyb2xwaS9tY3AiLCJ3cm9scGktbWNwIl0sImVudiI6eyJXUk9MUElfQVBJX1VSTCI6Imh0dHBzOi8vd3JvbHBpLmxvY2FsOjg0NDMifX0%3D
+```
+
+Or edit the config by hand: open a chat, switch to the **Program** tab in the right-hand sidebar, click
+**Install > Edit mcp.json**, and add the `wrolpi` entry (the file is `~/.lmstudio/mcp.json`, or
+`%USERPROFILE%\.lmstudio\mcp.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "wrolpi": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/wrolpi/mcp", "wrolpi-mcp"],
+      "env": {"WROLPI_API_URL": "https://wrolpi.local:8443"}
+    }
+  }
+}
+```
+
+Save the file, then turn the `wrolpi` server on in the Program tab for the chat. The first tool call
+opens a confirmation dialog where you can allow it once or always.
+
+Notes:
+
+* Use a model that supports tool calling (LM Studio marks them with a tool icon). Small models
+  can emit tool calls but get unreliable as the tool list grows.
+* LM Studio is a GUI app and may not see the `PATH` of your shell. If the server fails to start with
+  a "command not found" error, put the full path to `uvx` in `command` (`which uvx` on macOS/Linux,
+  `where uvx` on Windows), or install it with `pipx`/`uv tool` and use the full path to `wrolpi-mcp`.
+
 ## Tools
 
 | Tool | What it does |
