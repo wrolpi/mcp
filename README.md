@@ -66,21 +66,9 @@ If you installed it with `pipx` or `uv tool`, use `"command": "wrolpi-mcp"` with
 
 ### LM Studio
 
-LM Studio 0.3.17 or newer can run MCP servers. Either click the button (LM Studio opens and asks you
-to confirm the server), then change `WROLPI_API_URL` to your WROLPi's address:
-
-[![Add WROLPi to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](lmstudio://add_mcp?name=wrolpi&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL3dyb2xwaS9tY3AiLCJ3cm9scGktbWNwIl0sImVudiI6eyJXUk9MUElfQVBJX1VSTCI6Imh0dHBzOi8vd3JvbHBpLmxvY2FsOjg0NDMifX0%3D)
-
-GitHub strips `lmstudio://` links, so if the button does nothing, paste this into your browser's
-address bar instead:
-
-```
-lmstudio://add_mcp?name=wrolpi&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL3dyb2xwaS9tY3AiLCJ3cm9scGktbWNwIl0sImVudiI6eyJXUk9MUElfQVBJX1VSTCI6Imh0dHBzOi8vd3JvbHBpLmxvY2FsOjg0NDMifX0%3D
-```
-
-Or edit the config by hand: open a chat, switch to the **Program** tab in the right-hand sidebar, click
-**Install > Edit mcp.json**, and add the `wrolpi` entry (the file is `~/.lmstudio/mcp.json`, or
-`%USERPROFILE%\.lmstudio\mcp.json` on Windows):
+LM Studio 0.3.17 or newer can run MCP servers. Open a chat, switch to the **Program** tab in the
+right-hand sidebar, click **Install > Edit mcp.json**, and add the `wrolpi` entry (the file is
+`~/.lmstudio/mcp.json`, or `%USERPROFILE%\.lmstudio\mcp.json` on Windows):
 
 ```json
 {
