@@ -1,0 +1,48 @@
+[project]
+name = "wrolpi-mcp"
+version = "0.1.0"
+description = "MCP server that lets an LLM search and read a WROLPi's offline library."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=2.0.0",
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+]
+keywords = ["wrolpi", "mcp", "model-context-protocol", "offline", "library"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Internet",
+]
+
+[project.urls]
+Homepage = "https://wrolpi.org"
+Repository = "https://github.com/wrolpi/mcp"
+WROLPi = "https://github.com/lrnselfreliance/wrolpi"
+
+[project.scripts]
+wrolpi-mcp = "wrolpi_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "respx>=0.22",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["wrolpi_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
