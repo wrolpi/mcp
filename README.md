@@ -15,19 +15,34 @@ normal HTTP API over your network. Every result carries a link back into the WRO
 
 ## Install
 
-The quickest way is to let `uvx` fetch and run it straight from this repository:
+Install it as a persistent command. A WROLPi is meant to work offline, and this is the install that
+starts without the Internet:
+
+```bash
+uv tool install git+https://github.com/wrolpi/mcp
+# or
+pipx install git+https://github.com/wrolpi/mcp
+```
+
+To update later:
+
+```bash
+uv tool upgrade wrolpi-mcp
+# or
+pipx upgrade wrolpi-mcp
+```
+
+then restart the MCP client (or toggle the server off and on) so it relaunches the new version.
+
+You can also run it without installing, straight from this repository:
 
 ```bash
 uvx --from git+https://github.com/wrolpi/mcp wrolpi-mcp
 ```
 
-Or install it as a persistent command:
-
-```bash
-pipx install git+https://github.com/wrolpi/mcp
-# or
-uv tool install git+https://github.com/wrolpi/mcp
-```
+Avoid this form in a client config: `uvx` asks GitHub which commit is current on **every launch**, so
+the server fails to start whenever the Internet is down (even with `uv --offline`). Pinning a tag does
+not help; only a full commit hash (`git+https://github.com/wrolpi/mcp@<40-char sha>`) starts offline.
 
 ## Configure
 
@@ -42,8 +57,7 @@ The server reads these environment variables:
 ### Claude Code
 
 ```bash
-claude mcp add wrolpi -e WROLPI_API_URL=https://wrolpi.local:8443 -- \
-    uvx --from git+https://github.com/wrolpi/mcp wrolpi-mcp
+claude mcp add wrolpi -e WROLPI_API_URL=https://wrolpi.local:8443 -- wrolpi-mcp
 ```
 
 ### Claude Desktop
@@ -54,15 +68,15 @@ Add to `claude_desktop_config.json` (Settings > Developer > Edit Config):
 {
   "mcpServers": {
     "wrolpi": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/wrolpi/mcp", "wrolpi-mcp"],
+      "command": "wrolpi-mcp",
       "env": {"WROLPI_API_URL": "https://wrolpi.local:8443"}
     }
   }
 }
 ```
 
-If you installed it with `pipx` or `uv tool`, use `"command": "wrolpi-mcp"` with no `args`.
+Claude Desktop may not see your shell's `PATH`; if the server does not start, use the full path to
+`wrolpi-mcp` (`which wrolpi-mcp`).
 
 ### LM Studio
 
@@ -74,8 +88,7 @@ right-hand sidebar, click **Install > Edit mcp.json**, and add the `wrolpi` entr
 {
   "mcpServers": {
     "wrolpi": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/wrolpi/mcp", "wrolpi-mcp"],
+      "command": "wrolpi-mcp",
       "env": {"WROLPI_API_URL": "https://wrolpi.local:8443"}
     }
   }
@@ -90,8 +103,8 @@ Notes:
 * Use a model that supports tool calling (LM Studio marks them with a tool icon). Small models
   can emit tool calls but get unreliable as the tool list grows.
 * LM Studio is a GUI app and may not see the `PATH` of your shell. If the server fails to start with
-  a "command not found" error, put the full path to `uvx` in `command` (`which uvx` on macOS/Linux,
-  `where uvx` on Windows), or install it with `pipx`/`uv tool` and use the full path to `wrolpi-mcp`.
+  a "command not found" error, put the full path to `wrolpi-mcp` in `command` (`which wrolpi-mcp` on
+  macOS/Linux, `where wrolpi-mcp` on Windows).
 
 ## Tools
 
@@ -118,11 +131,13 @@ behind it. Since 0.1.1 the model is told exactly this (and how to retry) instead
 "Error executing tool". If it still happens, raise `WROLPI_TIMEOUT`, or ask for title-only searches.
 
 **The model never sees an error message, only "Error executing tool".** Upgrade the server: that is how
-older versions reported a timeout. With `uvx`, clear the cached copy so it fetches the latest:
+versions before 0.1.1 reported a timeout. `uv tool upgrade wrolpi-mcp` (or `pipx upgrade wrolpi-mcp`),
+then restart the client. If your config runs `uvx --from git+...`, clear its cache instead so it fetches
+the latest: `uv cache clean wrolpi-mcp`.
 
-```bash
-uv cache clean wrolpi-mcp
-```
+**The server will not start while the Internet is down.** Your config runs it through
+`uvx --from git+https://github.com/wrolpi/mcp`, which must contact GitHub on every launch. Switch to
+the persistent install above and set `"command": "wrolpi-mcp"`.
 
 **"Could not reach the WROLPi".** `WROLPI_API_URL` must be the address you type in a browser,
 including `https://` and the port (`https://wrolpi.local:8443`). The server's log goes to the
