@@ -2,6 +2,7 @@
 
 Every tool is a read-only call to the WROLPi's public HTTP API (the same endpoints the WROLPi
 web app uses), rendered as compact text with a WROLPi link on every item."""
+import functools
 import json
 import logging
 import sys
@@ -13,7 +14,7 @@ from mcp.types import ToolAnnotations
 
 from wrolpi_mcp import render
 from wrolpi_mcp.client import api_get, api_get_text, api_post
-from wrolpi_mcp.config import DEFAULT_LIMIT
+from wrolpi_mcp.config import API_BASE_URL, DEFAULT_LIMIT, TIMEOUT
 from wrolpi_mcp.render import absolute_link, page_text
 
 # All logging must go to stderr: stdout is the MCP stdio transport.
@@ -40,6 +41,58 @@ mcp = MCPServer(
 )
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """The WROLPi's own error text, when its body is a JSON error."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ''
+    if isinstance(body, dict):
+        return ' '.join(str(body[k]) for k in ('code', 'message', 'error') if body.get(k))
+    return ''
+
+
+def _describe_failure(e: Exception) -> str | None:
+    """A readable explanation of a failed WROLPi request, or None when the exception is not one.
+
+    MCP clients show a model little more than the exception's str(), and httpx's timeout exceptions have
+    an empty one, so a model would otherwise see only "Error executing tool" and no way forward."""
+    if isinstance(e, httpx.TimeoutException):
+        return (f'The WROLPi at {API_BASE_URL} did not answer within {TIMEOUT:.0f} seconds (WROLPI_TIMEOUT). '
+                'It is probably still working on that request, so wait a little before retrying. '
+                'Deep searches (deep=True) and searching every Zim at once are slow on a Raspberry Pi: '
+                'retry without deep, lower the limit, or search one Zim with zim_id.')
+    if isinstance(e, httpx.HTTPStatusError):
+        resp = e.response
+        detail = _error_detail(resp)
+        return (f'The WROLPi answered {resp.status_code} for {resp.request.method} {resp.request.url.path}'
+                + (f': {detail}' if detail else '') + '.')
+    if isinstance(e, httpx.HTTPError):
+        return (f'Could not reach the WROLPi at {API_BASE_URL} ({type(e).__name__}: {e}). '
+                'Check WROLPI_API_URL (the same address the browser uses) and that the WROLPi is on.')
+    if isinstance(e, json.JSONDecodeError):
+        return (f'The WROLPi at {API_BASE_URL} answered with something other than JSON, usually its fallback '
+                'page while the API is down or restarting. Try again in a minute.')
+    return None
+
+
+def tool(fn):
+    """Register a read-only MCP tool whose WROLPi failures come back as plain text the model can act on."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except Exception as e:
+            described = _describe_failure(e)
+            if described is None:
+                raise
+            logger.warning(f'{fn.__name__} failed: {type(e).__name__}: {e}')
+            return described
+
+    return mcp.tool(annotations=READ_ONLY)(wrapper)
 
 # The maximum results any WROLPi search endpoint accepts.
 MAX_LIMIT = 100
@@ -101,7 +154,7 @@ async def _resolve_channel(channel: str):
     return None, f'Several channels match "{channel}"; pass one of their IDs as channel: {names}'
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def search_files(
     query: str | None = None,
     kind: str | None = None,
@@ -176,7 +229,7 @@ async def _get_detail(file_group_id: int, kind: str | None = None) -> tuple[str 
     return None, None, {}
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_file(file_group_id: int, kind: str | None = None) -> str:
     """Get details about one item of any kind (video, archived page, document) by its ID from search results.
 
@@ -194,7 +247,7 @@ async def get_file(file_group_id: int, kind: str | None = None) -> str:
     return render.render_item(item)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def read_content(file_group_id: int, part: str = 'text', offset: int = 0) -> str:
     """Read what an item says: a video's captions or an archived page's text (part="text"), or a video's
     comments (part="comments").  Long content is returned in windows; continue with the offset the
@@ -259,7 +312,7 @@ async def _read_archive_text(fg: dict) -> str | None:
 # Zim tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def search_zim(
     query: str,
     zim_id: int | None = None,
@@ -294,7 +347,7 @@ async def search_zim(
     return render.render_zim_search(results)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_zim_entry(zim_id: int, entry_path: str, offset: int = 0) -> str:
     """Read a specific article/entry from a Zim file (e.g. a Wikipedia article) as plain text.
 
@@ -316,7 +369,7 @@ async def get_zim_entry(zim_id: int, entry_path: str, offset: int = 0) -> str:
     return f'LINK: {absolute_link(link)}\n\n{page_text(text, offset)}'
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def list_zim_files() -> str:
     """List all available Zim encyclopedias (Wikipedia, Wiktionary, etc.).
 
@@ -344,7 +397,7 @@ async def list_zim_files() -> str:
 # Browsing / listing tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def list_collections(
     kind: str | None = None,
     query: str | None = None,
@@ -383,7 +436,7 @@ async def list_collections(
     return '\n\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def list_files(path: str = '', offset: int = 0) -> str:
     """List the directories and files inside one directory of the WROLPi media directory.
 
@@ -435,7 +488,7 @@ async def list_files(path: str = '', offset: int = 0) -> str:
     return '\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def read_file(path: str, offset: int = 0) -> str:
     """Read a plain-text file from the media directory by its relative path (from list_files).
 
@@ -460,7 +513,7 @@ async def read_file(path: str, offset: int = 0) -> str:
     return page_text(text, offset) if text else f'{path} is empty.'
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def list_tags() -> str:
     """List every tag in the library with how many files, Zim entries, channels, and domains carry it.
 
@@ -487,7 +540,7 @@ async def list_tags() -> str:
     return text
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def list_downloads(status: str | None = None, limit: int = DEFAULT_LIMIT) -> str:
     """Read the WROLPi download queue: summary, recurring downloads (channels, feeds), and one-time downloads.
 
@@ -531,7 +584,7 @@ async def list_downloads(status: str | None = None, limit: int = DEFAULT_LIMIT) 
     return '\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_map_overview() -> str:
     """Describe the maps on this WROLPi: downloaded map regions, whether each has a place-search index,
     subscribed regions, and the user's saved pins (with links)."""
@@ -563,7 +616,7 @@ async def get_map_overview() -> str:
     return '\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def search_places(
     query: str,
     limit: int = DEFAULT_LIMIT,
@@ -598,7 +651,7 @@ async def search_places(
     return '\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_statistics() -> str:
     """Get an overview of what content is stored in the WROLPi library.
 
@@ -608,7 +661,7 @@ async def get_statistics() -> str:
     return json.dumps(data, indent=2, default=str)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_inventory(inventory_slug: str | None = None) -> str:
     """List the inventories (emergency supplies, food storage, etc.), or read one in full.
 
@@ -634,7 +687,7 @@ async def get_inventory(inventory_slug: str | None = None) -> str:
     return '\n\n'.join(lines)
 
 
-@mcp.tool(annotations=READ_ONLY)
+@tool
 async def get_status() -> str:
     """Get WROLPi system status (version, mode, download summary, CPU, memory, disks, flags)."""
     data = await api_get('/api/status')

@@ -1,11 +1,12 @@
 """HTTP client for the WROLPi API and the /media file server."""
 import httpx
 
-from wrolpi_mcp.config import API_BASE_URL, TIMEOUT, VERIFY_TLS
+from wrolpi_mcp.config import API_BASE_URL, CONNECT_TIMEOUT, TIMEOUT, VERIFY_TLS
 
 
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=API_BASE_URL, verify=VERIFY_TLS, timeout=TIMEOUT, follow_redirects=True)
+    timeout = httpx.Timeout(TIMEOUT, connect=CONNECT_TIMEOUT)
+    return httpx.AsyncClient(base_url=API_BASE_URL, verify=VERIFY_TLS, timeout=timeout, follow_redirects=True)
 
 
 async def api_get(path: str, params: dict | None = None) -> dict:

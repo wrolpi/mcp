@@ -37,7 +37,7 @@ The server reads these environment variables:
 |---|---|---|
 | `WROLPI_API_URL` | `https://localhost:8443` | The WROLPi's address, exactly as you type it in a browser. |
 | `WROLPI_VERIFY_TLS` | `false` | Verify the TLS certificate. WROLPi uses a self-signed one by default. |
-| `WROLPI_TIMEOUT` | `60` | Seconds to wait for a response. Deep searches on a Raspberry Pi can be slow. |
+| `WROLPI_TIMEOUT` | `300` | Seconds to wait for a response. Deep searches and searching every Zim at once can take minutes on a Raspberry Pi. |
 
 ### Claude Code
 
@@ -108,6 +108,25 @@ Notes:
 | `get_map_overview`, `search_places` | Downloaded map regions, pins, and place search. |
 | `get_inventory` | Inventories (food storage, supplies) and their items. |
 | `get_statistics`, `get_status` | Library statistics and system status. |
+
+## Troubleshooting
+
+**Every tool fails, or a search fails and then everything after it does.** The usual cause is one
+slow request. A `deep=True` search or a search across every Zim can take minutes on a Raspberry Pi; if
+the server gives up first, the WROLPi keeps working on the abandoned request and the next calls queue
+behind it. Since 0.1.1 the model is told exactly this (and how to retry) instead of a bare
+"Error executing tool". If it still happens, raise `WROLPI_TIMEOUT`, or ask for title-only searches.
+
+**The model never sees an error message, only "Error executing tool".** Upgrade the server: that is how
+older versions reported a timeout. With `uvx`, clear the cached copy so it fetches the latest:
+
+```bash
+uv cache clean wrolpi-mcp
+```
+
+**"Could not reach the WROLPi".** `WROLPI_API_URL` must be the address you type in a browser,
+including `https://` and the port (`https://wrolpi.local:8443`). The server's log goes to the
+MCP client's log (LM Studio: **Developer > Logs**; Claude Desktop: `~/Library/Logs/Claude/mcp*.log`).
 
 ## Development
 

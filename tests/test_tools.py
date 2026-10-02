@@ -2,6 +2,7 @@
 and the rendered text carries what a model needs (IDs, links, hints, continuation offsets)."""
 import json
 
+import httpx
 import pytest
 from httpx import Response
 
@@ -318,8 +319,38 @@ async def test_inventory_status_statistics(api):
     assert json.loads(await server.get_statistics()) == {'file_statistics': {'video_count': 3}}
 
 
-async def test_http_errors_propagate(api):
-    """Anything but "not found" is a real failure the client should see."""
-    api.post('/api/files/search').mock(return_value=Response(503, json={}))
-    with pytest.raises(Exception):
-        await server.search_files(query='x')
+async def test_http_errors_are_explained(api):
+    """A failed request comes back as text naming the status and the WROLPi's own error, not a bare exception."""
+    api.post('/api/files/search').mock(return_value=Response(503, json={'code': 'DB_DOWN', 'message': 'no database'}))
+    text = await server.search_files(query='x')
+    assert '503' in text and 'DB_DOWN' in text and 'no database' in text
+
+
+async def test_timeout_is_explained(api):
+    """httpx timeouts have an empty str(); without translation a model sees only "Error executing tool"."""
+    api.post('/api/zim/search').mock(side_effect=httpx.ReadTimeout('read timed out'))
+    text = await server.search_zim(query='x')
+    assert 'did not answer within' in text and 'WROLPI_TIMEOUT' in text and 'zim_id' in text
+
+    api.post('/api/files/search').mock(side_effect=httpx.ReadTimeout(''))
+    text = await server.search_files(query='x', deep=True)
+    assert 'did not answer within' in text and 'deep' in text
+
+
+async def test_connection_error_names_the_address(api):
+    api.get('/api/statistics').mock(side_effect=httpx.ConnectError('connection refused'))
+    text = await server.get_statistics()
+    assert API_BASE_URL in text and 'WROLPI_API_URL' in text
+
+
+async def test_non_json_answer_is_explained(api):
+    """Caddy redirects to the fallback UI while the API is down: a 200 HTML page, not JSON."""
+    api.get('/api/statistics').mock(return_value=Response(200, text='<html>fallback</html>'))
+    text = await server.get_statistics()
+    assert 'other than JSON' in text
+
+
+async def test_unrelated_exceptions_still_raise(api):
+    api.get('/api/statistics').mock(side_effect=RuntimeError('bug'))
+    with pytest.raises(RuntimeError):
+        await server.get_statistics()
