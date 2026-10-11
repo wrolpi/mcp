@@ -24,6 +24,7 @@ async def test_tool_set():
         'list_collections', 'list_tags', 'list_files', 'read_file',
         'list_downloads', 'get_map_overview', 'search_places',
         'get_statistics', 'get_inventory', 'get_status',
+        'get_database_schema', 'query_database',
     }
     assert all(i.annotations.read_only_hint for i in tools)
 
@@ -354,3 +355,62 @@ async def test_unrelated_exceptions_still_raise(api):
     api.get('/api/statistics').mock(side_effect=RuntimeError('bug'))
     with pytest.raises(RuntimeError):
         await server.get_statistics()
+
+
+SCHEMA = {'tables': [
+    {'name': 'tag', 'type': 'table',
+     'columns': [{'name': 'id', 'type': 'INTEGER', 'not_null': False, 'primary_key': True},
+                 {'name': 'name', 'type': 'TEXT', 'not_null': True, 'primary_key': False}],
+     'indexes': [{'name': 'ix_tag_name', 'unique': True, 'columns': ['name']}]},
+    {'name': 'file_group_fts', 'type': 'virtual', 'columns': [{'name': 'title', 'type': '', 'not_null': False,
+                                                               'primary_key': False}],
+     'indexes': [], 'sql': 'CREATE VIRTUAL TABLE file_group_fts USING fts5(title)'},
+]}
+
+
+async def test_get_database_schema(api):
+    json_route(api, 'GET', '/api/db/schema', SCHEMA)
+    text = await server.get_database_schema()
+    assert text == (
+        'tag (table)\n'
+        '  id INTEGER PRIMARY KEY\n'
+        '  name TEXT NOT NULL\n'
+        '  index ix_tag_name UNIQUE (name)\n'
+        '\n'
+        'file_group_fts (virtual)\n'
+        '  title\n'
+        '  definition: CREATE VIRTUAL TABLE file_group_fts USING fts5(title)'
+    )
+
+
+async def test_query_database(api):
+    route = json_route(api, 'POST', '/api/db/query', {
+        'columns': ['id', 'title'], 'rows': [[1, 'Rain | water\nbarrels'], [2, None]],
+        'row_count': 2, 'truncated': True, 'elapsed': 0.012})
+    text = await server.query_database('SELECT id, title FROM file_group', limit=5000)
+    assert json.loads(route.calls.last.request.content) == {
+        'sql': 'SELECT id, title FROM file_group', 'limit': server.MAX_QUERY_LIMIT}
+    lines = text.splitlines()
+    assert lines[0] == 'id | title'
+    # One row per line, even when a value holds the separator or a newline.
+    assert lines[1] == '1 | Rain \\| water\\nbarrels'
+    assert lines[2] == '2 | NULL'
+    assert '2 row(s) in 0.012 s.' in text and 'More rows exist' in text
+
+
+async def test_database_tools_disabled(api):
+    """A WROLPi that has not opted in answers 403; the model is told how the user can enable it."""
+    error = {'code': 'DATABASE_QUERY_DISABLED', 'message': 'Database queries are disabled.'}
+    json_route(api, 'POST', '/api/db/query', error, status=403)
+    json_route(api, 'GET', '/api/db/schema', error, status=403)
+    for text in (await server.query_database('SELECT 1'), await server.get_database_schema()):
+        assert text == server.DATABASE_DISABLED_HINT
+        assert 'allow_database_query: true' in text
+
+
+async def test_query_database_invalid_sql(api):
+    """The WROLPi's SQLite error reaches the model so it can fix its SQL."""
+    json_route(api, 'POST', '/api/db/query', {
+        'code': 'INVALID_DATABASE_QUERY', 'error': 'no such table: nope'}, status=400)
+    text = await server.query_database('SELECT * FROM nope')
+    assert '400' in text and 'no such table: nope' in text

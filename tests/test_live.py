@@ -30,6 +30,8 @@ async def test_every_tool_answers(live_url):
     assert await server.list_downloads(limit=2)
     assert await server.get_map_overview()
     assert await server.get_inventory()
+    # Database queries are opt-in, so a disabled WROLPi answers with the hint for enabling them.
+    assert await server.get_database_schema()
     assert await server.search_places('a', limit=1)
     results = await server.search_files(limit=2)
     assert 'LINK: ' in results or results == 'No results found.'

@@ -697,6 +697,91 @@ async def get_status() -> str:
     return json.dumps(lean, indent=2, default=str)
 
 
+# ---------------------------------------------------------------------------
+# Database tools (the WROLPi must set `allow_database_query: true` in wrolpi.yaml)
+# ---------------------------------------------------------------------------
+
+DATABASE_DISABLED_HINT = ('Database queries are disabled on this WROLPi. To enable them, set '
+                          '`allow_database_query: true` in config/wrolpi.yaml in the media directory, then import '
+                          'wrolpi.yaml on the WROLPi\'s Configs page (or restart the WROLPi). Until then, use the '
+                          'other tools.')
+# Rows a query returns by default; more fill a model's context quickly.
+DEFAULT_QUERY_LIMIT = 100
+MAX_QUERY_LIMIT = 1000
+
+
+async def _database_request(method, path: str, **kwargs):
+    """Call a database endpoint, or return the hint for enabling them when the WROLPi refuses (403)."""
+    try:
+        return await method(path, **kwargs)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 403:
+            return DATABASE_DISABLED_HINT
+        raise
+
+
+def _sql_cell(value) -> str:
+    if value is None:
+        return 'NULL'
+    return str(value).replace('\\', '\\\\').replace('\n', '\\n').replace('|', '\\|')
+
+
+@tool
+async def get_database_schema() -> str:
+    """Describe the WROLPi's SQLite database: every table and view, its columns, and its indexes.
+
+    Call this before query_database.  Full-text search tables (FTS5) are listed with their definition.
+    """
+    data = await _database_request(api_get, '/api/db/schema')
+    if isinstance(data, str):
+        return data
+    blocks = []
+    for table in data.get('tables') or []:
+        lines = [f'{table["name"]} ({table["type"]})']
+        for column in table.get('columns') or []:
+            flags = ' PRIMARY KEY' if column.get('primary_key') else ''
+            flags += ' NOT NULL' if column.get('not_null') else ''
+            lines.append(f'  {column["name"]} {column.get("type") or ""}{flags}'.rstrip())
+        for index in table.get('indexes') or []:
+            unique = ' UNIQUE' if index.get('unique') else ''
+            lines.append(f'  index {index["name"]}{unique} ({", ".join(index.get("columns") or [])})')
+        if table.get('sql'):
+            lines.append(f'  definition: {table["sql"]}')
+        blocks.append('\n'.join(lines))
+    return '\n\n'.join(blocks) or 'The database has no tables.'
+
+
+@tool
+async def query_database(sql: str, limit: int = DEFAULT_QUERY_LIMIT) -> str:
+    """Run one read-only SQL statement against the WROLPi's SQLite database.
+
+    Use SQLite syntax (json_each, FTS5 MATCH, strftime).  Only reads are allowed: SELECT, WITH, and
+    introspection PRAGMAs such as table_info.  A query is stopped after a few seconds, so filter and
+    aggregate in SQL rather than fetching whole tables.  Call get_database_schema first.  Rows have no
+    links: pass a file_group id to get_file for one.
+
+    Args:
+        sql: A single SQL statement.
+        limit: The most rows to return (1-1000).  Page with LIMIT/OFFSET in the SQL for more.
+    """
+    try:
+        limit = max(1, min(int(limit), MAX_QUERY_LIMIT))
+    except (TypeError, ValueError):
+        limit = DEFAULT_QUERY_LIMIT
+    data = await _database_request(api_post, '/api/db/query', json={'sql': sql, 'limit': limit})
+    if isinstance(data, str):
+        return data
+    columns, rows = data.get('columns') or [], data.get('rows') or []
+    if not columns:
+        return 'The statement returned no columns.'
+    lines = [' | '.join(columns)]
+    lines.extend(' | '.join(_sql_cell(i) for i in row) for row in rows)
+    footer = f'\n{len(rows)} row(s) in {data.get("elapsed", 0)} s.'
+    if data.get('truncated'):
+        footer += f' More rows exist: raise limit (max {MAX_QUERY_LIMIT}) or page with LIMIT/OFFSET.'
+    return '\n'.join(lines) + footer
+
+
 def main():
     mcp.run(transport='stdio')
 
