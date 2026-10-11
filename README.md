@@ -5,8 +5,8 @@ any MCP client) search and read the contents of your [WROLPi](https://wrolpi.org
 captions, archived web pages, ebooks and documents, Zim encyclopedias, maps, tags, inventories, and
 the download queue.
 
-The server is read-only. It runs on your computer, not on the WROLPi, and talks to the WROLPi's
-normal HTTP API over your network. Every result carries a link back into the WROLPi web app.
+Every tool only reads, except `upgrade_wrolpi`, which your MCP client asks you to approve. The server
+runs on your computer, not on the WROLPi, and talks to the WROLPi's normal HTTP API over your network. Every result carries a link back into the WROLPi web app.
 
 ## Requirements
 
@@ -121,7 +121,16 @@ Notes:
 | `get_map_overview`, `search_places` | Downloaded map regions, pins, and place search. |
 | `get_inventory` | Inventories (food storage, supplies) and their items. |
 | `get_statistics`, `get_status` | Library statistics and system status. |
+| `upgrade_wrolpi`, `get_upgrade_status` | Upgrade the WROLPi to a git branch (`release`, `master`, ...) and follow the upgrade's log. Not for Docker. |
 | `get_database_schema`, `query_database` | Read-only SQL against the WROLPi's database. Off unless enabled on the WROLPi (below). |
+
+### Upgrades
+
+`upgrade_wrolpi` asks the WROLPi's Controller to upgrade to the newest code of a branch, exactly like
+**Upgrade** on the Controller page. Omit the branch to upgrade the branch the WROLPi already runs. The
+upgrade takes several minutes and restarts every WROLPi service, so the other tools fail meanwhile;
+`get_upgrade_status` reports progress from the Controller, which stays up. A WROLPi running in Docker
+cannot upgrade itself.
 
 ### Database queries (advanced)
 
