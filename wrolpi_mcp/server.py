@@ -5,6 +5,7 @@ as compact text with a WROLPi link on every item.  All tools only read, except u
 import functools
 import json
 import logging
+import re
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
@@ -793,6 +794,8 @@ async def query_database(sql: str, limit: int = DEFAULT_QUERY_LIMIT) -> str:
 # ---------------------------------------------------------------------------
 
 UPGRADE_LOG_LINES = 40
+# A plain git branch name.  The Controller writes it into an env file, so no whitespace or newlines.
+BRANCH_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,99}')
 
 
 def _controller_detail(e: httpx.HTTPStatusError) -> str:
@@ -823,6 +826,8 @@ async def upgrade_wrolpi(branch: str | None = None) -> str:
     """
     previous = await _current_branch()
     branch = (branch or previous or 'release').strip()
+    if not BRANCH_PATTERN.fullmatch(branch) or '..' in branch:
+        return f'"{branch}" is not a branch name. Use letters, digits, ".", "_", "-", and "/", e.g. "release".'
     try:
         await api_post('/controller/api/scripts/upgrade/start', json={'params': {'branch': branch}})
     except httpx.HTTPStatusError as e:

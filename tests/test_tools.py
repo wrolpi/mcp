@@ -472,3 +472,17 @@ async def test_get_upgrade_status_api_down(api):
     text = await server.get_upgrade_status()
     assert 'No upgrade is running.' in text
     assert 'Branch: release | The WROLPi API is not answering' in text
+
+
+@pytest.mark.parametrize('branch', ['master\nEVIL=1', '-x', 'a b', '../master', 'a..b', ''])
+async def test_upgrade_wrolpi_rejects_bad_branch(api, branch):
+    """The Controller writes the branch into an env file, so only plain branch names are sent."""
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    start = json_route(api, 'POST', '/controller/api/scripts/upgrade/start', {'success': True})
+    text = await server.upgrade_wrolpi(branch=branch)
+    if branch:
+        assert 'is not a branch name' in text
+        assert not start.called
+    else:
+        # Empty means the current branch.
+        assert json.loads(start.calls.last.request.content) == {'params': {'branch': 'master'}}
