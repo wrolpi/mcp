@@ -128,7 +128,7 @@ Notes:
 `query_database` runs read-only SQL (SQLite) against the WROLPi's database, for questions the other
 tools cannot answer ("which channels have the most unwatched videos?"). The WROLPi refuses these until
 you opt in, because WROLPi's API has no login: anyone who can reach the WROLPi could read the
-whole database, including viewing history. There is no setting in the web app. To enable it, add this
+whole database, including viewing history. There is no switch for it in Settings. To enable it, add this
 to `config/wrolpi.yaml` in the media directory:
 
 ```yaml
@@ -136,6 +136,8 @@ allow_database_query: true
 ```
 
 then click **Import** for `wrolpi.yaml` on the WROLPi's Configs page (or restart the WROLPi).
+To turn it off again, set it to `false` and import again; deleting the line has no effect until the
+WROLPi restarts.
 
 Queries cannot change anything: the WROLPi opens the database read-only and refuses any statement
 other than a read. Each query is stopped after 10 seconds, returns at most 1000 rows to the model, and
