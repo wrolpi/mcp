@@ -128,7 +128,7 @@ Notes:
 `query_database` runs read-only SQL (SQLite) against the WROLPi's database, for questions the other
 tools cannot answer ("which channels have the most unwatched videos?"). The WROLPi refuses these until
 you opt in, because WROLPi's API has no login: anyone who can reach the WROLPi could read the
-whole database, including viewing history. There is no setting in the web app. To enable it, add this
+whole database, including viewing history. There is no switch for it in Settings. To enable it, add this
 to `config/wrolpi.yaml` in the media directory:
 
 ```yaml
