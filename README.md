@@ -136,6 +136,8 @@ allow_database_query: true
 ```
 
 then click **Import** for `wrolpi.yaml` on the WROLPi's Configs page (or restart the WROLPi).
+To turn it off again, set it to `false` and import again; deleting the line has no effect until the
+WROLPi restarts.
 
 Queries cannot change anything: the WROLPi opens the database read-only and refuses any statement
 other than a read. Each query is stopped after 10 seconds, returns at most 1000 rows to the model, and
