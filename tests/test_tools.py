@@ -25,8 +25,10 @@ async def test_tool_set():
         'list_downloads', 'get_map_overview', 'search_places',
         'get_statistics', 'get_inventory', 'get_status',
         'get_database_schema', 'query_database',
+        'upgrade_wrolpi', 'get_upgrade_status',
     }
-    assert all(i.annotations.read_only_hint for i in tools)
+    # Only the upgrade changes the WROLPi, so MCP clients ask before running it.
+    assert {i.name for i in tools if not i.annotations.read_only_hint} == {'upgrade_wrolpi'}
 
 
 async def test_search_files_global(api):
@@ -414,3 +416,73 @@ async def test_query_database_invalid_sql(api):
         'code': 'INVALID_DATABASE_QUERY', 'error': 'no such table: nope'}, status=400)
     text = await server.query_database('SELECT * FROM nope')
     assert '400' in text and 'no such table: nope' in text
+
+
+async def test_upgrade_wrolpi_branch(api):
+    """The chosen branch is always sent, and the model learns it is switching branches."""
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    start = json_route(api, 'POST', '/controller/api/scripts/upgrade/start', {'success': True})
+    text = await server.upgrade_wrolpi(branch='release')
+    assert json.loads(start.calls.last.request.content) == {'params': {'branch': 'release'}}
+    assert '"release" (switching from master) started' in text and 'get_upgrade_status' in text
+
+
+async def test_upgrade_wrolpi_current_branch(api):
+    """Without a branch, the current one is sent explicitly; the Controller would otherwise reuse the branch of
+    the previous upgrade."""
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    start = json_route(api, 'POST', '/controller/api/scripts/upgrade/start', {'success': True})
+    text = await server.upgrade_wrolpi()
+    assert json.loads(start.calls.last.request.content) == {'params': {'branch': 'master'}}
+    assert 'switching' not in text
+
+
+async def test_upgrade_wrolpi_refused(api):
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    json_route(api, 'POST', '/controller/api/scripts/upgrade/start',
+               {'detail': "Script 'upgrade' is already running"}, status=400)
+    assert "already running" in await server.upgrade_wrolpi(branch='master')
+
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'detail': 'Docker'}, status=501)
+    json_route(api, 'POST', '/controller/api/scripts/upgrade/start', {'detail': 'Docker'}, status=501)
+    assert 'Docker' in await server.upgrade_wrolpi(branch='master')
+
+
+async def test_get_upgrade_status(api):
+    json_route(api, 'GET', '/controller/api/scripts/status',
+               {'running': True, 'script_name': 'upgrade', 'elapsed_seconds': 75})
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    json_route(api, 'GET', '/api/status', {'version': '0.29.0-beta\n', 'current_commit': 'f2772068'})
+    output = json_route(api, 'GET', '/controller/api/scripts/upgrade/output', {'output': 'Upgrading WROLPi from branch: master\n'})
+    text = await server.get_upgrade_status(lines=10)
+    assert output.calls.last.request.url.params['lines'] == '10'
+    assert text.splitlines()[:2] == [
+        'Upgrade RUNNING for 75 s.',
+        'Branch: master | Version: 0.29.0-beta | Commit: f2772068',
+    ]
+    assert text.endswith('Upgrading WROLPi from branch: master')
+
+
+async def test_get_upgrade_status_api_down(api):
+    """The WROLPi API restarts during an upgrade; Caddy then answers with its HTML fallback page."""
+    json_route(api, 'GET', '/controller/api/scripts/status', {'running': False})
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'release'})
+    api.get('/api/status').mock(return_value=Response(200, text='<html>fallback</html>'))
+    json_route(api, 'GET', '/controller/api/scripts/upgrade/output', {'output': ''})
+    text = await server.get_upgrade_status()
+    assert 'No upgrade is running.' in text
+    assert 'Branch: release | The WROLPi API is not answering' in text
+
+
+@pytest.mark.parametrize('branch', ['master\nEVIL=1', '-x', 'a b', '../master', 'a..b', ''])
+async def test_upgrade_wrolpi_rejects_bad_branch(api, branch):
+    """The Controller writes the branch into an env file, so only plain branch names are sent."""
+    json_route(api, 'GET', '/controller/api/scripts/branch', {'branch': 'master'})
+    start = json_route(api, 'POST', '/controller/api/scripts/upgrade/start', {'success': True})
+    text = await server.upgrade_wrolpi(branch=branch)
+    if branch:
+        assert 'is not a branch name' in text
+        assert not start.called
+    else:
+        # Empty means the current branch.
+        assert json.loads(start.calls.last.request.content) == {'params': {'branch': 'master'}}

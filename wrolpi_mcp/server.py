@@ -1,10 +1,11 @@
 """WROLPi MCP Server: exposes a WROLPi's offline library to LLMs via the Model Context Protocol.
 
-Every tool is a read-only call to the WROLPi's public HTTP API (the same endpoints the WROLPi
-web app uses), rendered as compact text with a WROLPi link on every item."""
+Every tool calls the WROLPi's public HTTP API (the same endpoints the WROLPi web app uses), rendered
+as compact text with a WROLPi link on every item.  All tools only read, except upgrade_wrolpi."""
 import functools
 import json
 import logging
+import re
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
@@ -41,6 +42,9 @@ mcp = MCPServer(
 )
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
+# Changes the WROLPi (restarts its services) but deletes nothing; MCP clients ask before running it.
+CHANGES_WROLPI = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
+                                 openWorldHint=True)
 
 
 def _error_detail(response: httpx.Response) -> str:
@@ -78,8 +82,11 @@ def _describe_failure(e: Exception) -> str | None:
     return None
 
 
-def tool(fn):
-    """Register a read-only MCP tool whose WROLPi failures come back as plain text the model can act on."""
+def tool(fn=None, *, annotations: ToolAnnotations = READ_ONLY):
+    """Register an MCP tool (read-only unless `annotations` says otherwise) whose WROLPi failures come back as
+    plain text the model can act on."""
+    if fn is None:
+        return functools.partial(tool, annotations=annotations)
 
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
@@ -92,7 +99,7 @@ def tool(fn):
             logger.warning(f'{fn.__name__} failed: {type(e).__name__}: {e}')
             return described
 
-    return mcp.tool(annotations=READ_ONLY)(wrapper)
+    return mcp.tool(annotations=annotations)(wrapper)
 
 # The maximum results any WROLPi search endpoint accepts.
 MAX_LIMIT = 100
@@ -780,6 +787,99 @@ async def query_database(sql: str, limit: int = DEFAULT_QUERY_LIMIT) -> str:
     if data.get('truncated'):
         footer += f' More rows exist: raise limit (max {MAX_QUERY_LIMIT}) or page with LIMIT/OFFSET.'
     return '\n'.join(lines) + footer
+
+
+# ---------------------------------------------------------------------------
+# Upgrade (through the WROLPi Controller, which Caddy serves at /controller)
+# ---------------------------------------------------------------------------
+
+UPGRADE_LOG_LINES = 40
+# A plain git branch name.  The Controller writes it into an env file, so no whitespace or newlines.
+BRANCH_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,99}')
+
+
+def _controller_detail(e: httpx.HTTPStatusError) -> str:
+    try:
+        return str(e.response.json().get('detail') or '')
+    except ValueError:
+        return ''
+
+
+async def _current_branch() -> str | None:
+    try:
+        return (await api_get('/controller/api/scripts/branch')).get('branch') or None
+    except httpx.HTTPStatusError:
+        return None
+
+
+@tool(annotations=CHANGES_WROLPI)
+async def upgrade_wrolpi(branch: str | None = None) -> str:
+    """Upgrade the WROLPi to the newest code of a git branch, then restart its services.
+
+    Only for a WROLPi installed on a Raspberry Pi or Debian; a Docker WROLPi is upgraded by pulling new images.
+    The upgrade runs in the background for several minutes and the WROLPi is unavailable meanwhile: call
+    get_upgrade_status to follow it.  Only signed commits are installed.
+
+    Args:
+        branch: The git branch to install, e.g. "release" (stable) or "master" (development).  Omit to
+            upgrade the branch the WROLPi already runs.
+    """
+    previous = await _current_branch()
+    branch = (branch or previous or 'release').strip()
+    if not BRANCH_PATTERN.fullmatch(branch) or '..' in branch:
+        return f'"{branch}" is not a branch name. Use letters, digits, ".", "_", "-", and "/", e.g. "release".'
+    try:
+        await api_post('/controller/api/scripts/upgrade/start', json={'params': {'branch': branch}})
+    except httpx.HTTPStatusError as e:
+        detail = _controller_detail(e)
+        if e.response.status_code == 501:
+            return 'This WROLPi runs in Docker, which cannot upgrade itself. Pull new images and restart the containers.'
+        if e.response.status_code == 400 and detail:
+            return f'The upgrade did not start: {detail}. Call get_upgrade_status to see what is running.'
+        raise
+    switching = f' (switching from {previous})' if previous and previous != branch else ''
+    return (f'Upgrade to branch "{branch}"{switching} started. It takes several minutes and restarts every WROLPi '
+            f'service. Call get_upgrade_status in a minute or two to follow it.')
+
+
+@tool
+async def get_upgrade_status(lines: int = UPGRADE_LOG_LINES) -> str:
+    """Report whether an upgrade is running, the installed branch and version, and the end of the upgrade log.
+
+    Args:
+        lines: How many of the last upgrade log lines to show (1-500).
+    """
+    try:
+        lines = max(1, min(int(lines), 500))
+    except (TypeError, ValueError):
+        lines = UPGRADE_LOG_LINES
+    try:
+        status = await api_get('/controller/api/scripts/status')
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 501:
+            return 'This WROLPi runs in Docker, which has no upgrade script.'
+        raise
+    running = status.get('running') and status.get('script_name') == 'upgrade'
+    parts = []
+    if running:
+        parts.append(f'Upgrade RUNNING for {status.get("elapsed_seconds") or 0} s.')
+    elif status.get('running'):
+        parts.append(f'Another script is running: {status.get("script_name")}.')
+    else:
+        parts.append('No upgrade is running.')
+
+    branch = await _current_branch()
+    try:
+        api_status = await api_get('/api/status')
+        version = (api_status.get('version') or '').strip()
+        parts.append(f'Branch: {branch or "unknown"} | Version: {version} | Commit: {api_status.get("current_commit")}')
+    except (httpx.HTTPError, ValueError):
+        # The API is down while an upgrade restarts it.
+        parts.append(f'Branch: {branch or "unknown"} | The WROLPi API is not answering (normal during an upgrade).')
+
+    output = (await api_get('/controller/api/scripts/upgrade/output', params={'lines': lines})).get('output') or ''
+    parts.append(f'Last {lines} upgrade log lines:\n{output.strip() or "(empty)"}')
+    return '\n'.join(parts)
 
 
 def main():
