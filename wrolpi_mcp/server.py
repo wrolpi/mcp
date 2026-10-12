@@ -737,7 +737,8 @@ def _sql_cell(value) -> str:
 async def get_database_schema() -> str:
     """Describe the WROLPi's SQLite database: every table and view, its columns, and its indexes.
 
-    Call this before query_database.  Full-text search tables (FTS5) are listed with their definition.
+    Call this before query_database.  "a_id INTEGER -> a.id" means the column joins to that table's column; join
+    only along these.  Full-text search tables (FTS5) are listed with their definition.
     """
     data = await _database_request(api_get, '/api/db/schema')
     if isinstance(data, str):
@@ -748,6 +749,7 @@ async def get_database_schema() -> str:
         for column in table.get('columns') or []:
             flags = ' PRIMARY KEY' if column.get('primary_key') else ''
             flags += ' NOT NULL' if column.get('not_null') else ''
+            flags += f' -> {column["references"]}' if column.get('references') else ''
             lines.append(f'  {column["name"]} {column.get("type") or ""}{flags}'.rstrip())
         for index in table.get('indexes') or []:
             unique = ' UNIQUE' if index.get('unique') else ''
