@@ -362,7 +362,9 @@ async def test_unrelated_exceptions_still_raise(api):
 SCHEMA = {'tables': [
     {'name': 'tag', 'type': 'table',
      'columns': [{'name': 'id', 'type': 'INTEGER', 'not_null': False, 'primary_key': True},
-                 {'name': 'name', 'type': 'TEXT', 'not_null': True, 'primary_key': False}],
+                 {'name': 'name', 'type': 'TEXT', 'not_null': True, 'primary_key': False},
+                 {'name': 'parent_id', 'type': 'INTEGER', 'not_null': False, 'primary_key': False,
+                  'references': 'tag.id'}],
      'indexes': [{'name': 'ix_tag_name', 'unique': True, 'columns': ['name']}]},
     {'name': 'file_group_fts', 'type': 'virtual', 'columns': [{'name': 'title', 'type': '', 'not_null': False,
                                                                'primary_key': False}],
@@ -377,6 +379,7 @@ async def test_get_database_schema(api):
         'tag (table)\n'
         '  id INTEGER PRIMARY KEY\n'
         '  name TEXT NOT NULL\n'
+        '  parent_id INTEGER -> tag.id\n'
         '  index ix_tag_name UNIQUE (name)\n'
         '\n'
         'file_group_fts (virtual)\n'
